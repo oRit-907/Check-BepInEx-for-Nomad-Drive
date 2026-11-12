@@ -1,0 +1,71 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>NomadModDownloader</AssemblyName>
+    <RootNamespace>NomadModDownloader</RootNamespace>
+    <Product>Check BepInEx</Product>
+    <AssemblyTitle>Check BepInEx</AssemblyTitle>
+    <Description>Checks and repairs BepInEx for Nomad Drive and installs the in-game Mods menu.</Description>
+    <Version>3.3.0</Version>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationVisualStyles>true</ApplicationVisualStyles>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Published as one self-contained, compressed exe. The app is only distributed through GitHub releases;
+         Nexus's scanners flagged compressed builds, so turn compression off if it's ever posted there again. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+  <!-- dotnet publish -p:NexusEdition=true: the Nexus edition (Core/Edition.cs). Not compressed, so Nexus's scanners
+       can see inside it, and BepInEx 5 is built in instead of downloaded. -->
+  <!-- The Nexus edition is published as a plain .NET app (CheckBepInEx.exe + CheckBepInEx.dll, needs the .NET 8 Desktop
+       Runtime): no self-extracting single file, which virus scanners often flag. -->
+  <PropertyGroup Condition="'$(NexusEdition)' == 'true'">
+    <DefineConstants>$(DefineConstants);NEXUS_EDITION</DefineConstants>
+    <AssemblyName>CheckBepInEx</AssemblyName>
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(NexusEdition)' == 'true'">
+    <EmbeddedResource Include="Assets\BepInEx_win_x64_5.4.23.6.zip" LogicalName="Assets.BepInEx_win_x64_5.4.23.6.zip" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Core/Shared: the same categories and version rules as the in-game Mods menu (copies of
+         NomadModDownloader/mod/NomadModManager/Plugin/Categories.cs and ModVersion.cs; keep them in step). -->
+  </ItemGroup>
+  <ItemGroup>
+    <!-- App text and AKoRit mod pages in 11 languages. -->
+    <EmbeddedResource Include="Lang\*.json" LogicalName="Lang.%(Filename)%(Extension)" />
+    <!-- The app's own logo (a highway sign, made for Nomad Drive Mods) and the Noto Sans font (OFL). -->
+    <EmbeddedResource Include="Art\*.ttf;Art\logo.png" LogicalName="Art.%(Filename)%(Extension)" />
+    <!-- Nomad Drive's mscorlib is stripped; BepInEx needs Mono's full class libraries (MIT). See THIRD-PARTY-NOTICES.md. -->
+    <EmbeddedResource Include="Assets\DotNetFix.zip" LogicalName="Assets.DotNetFix.zip" />
+    <!-- BepInEx 6 Compatibility (mod/BepInEx6Compat) + BepInEx 6's runtime (MIT): runs BepInEx 6 mods on BepInEx 5. -->
+    <EmbeddedResource Include="Assets\BepInEx6Compat.zip" LogicalName="Assets.BepInEx6Compat.zip" />
+    <EmbeddedResource Include="Assets\UnityCompat5.zip" LogicalName="Assets.UnityCompat5.zip" />
+    <EmbeddedResource Include="Assets\ModChanges5.dll" LogicalName="Assets.ModChanges5.dll" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="System.IO" />
+    <Using Include="System.Net.Http" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SharpCompress" Version="0.50.8" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>

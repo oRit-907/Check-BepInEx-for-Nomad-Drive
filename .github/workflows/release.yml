@@ -1,0 +1,187 @@
+# Makes the GitHub release for each Check BepInEx version (before 3.0: Nomad Mod Downloader; same process as Ignite3D's).
+#
+# In-app updates read this repo's latest release and download its .exe.
+#
+# To make a release, push a branch named release/vX.Y.Z (started from main) with the files in release-files/:
+#   - files over 100 MB split into parts: CheckBepInEx-X.Y.Z.exe.part00, .part01, ... (smaller files as they are)
+#   - SHA256SUMS: sha256sum output for the joined files (pushed last; until it's there the run does nothing)
+#   - notes.md (optional): the release notes.
+# The workflow joins the parts, checks the hashes, creates release vX.Y.Z on the main commit the branch started
+# from (so the tag never carries the files), attaches the files, then deletes the branch.
+#
+# Code signing (Azure Artifact Signing): when it's set up, the .exe is signed before it's published (the one in the
+# zip too), so Windows SmartScreen shows the publisher instead of "Unknown publisher". Set up once in the repo:
+#   Secrets:   AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET — an app registration (Entra ID) that has the
+#              "Artifact Signing Certificate Profile Signer" role on the certificate profile.
+#   Variables: SIGNING_ENDPOINT (e.g. https://eus.codesigning.azure.net/), SIGNING_ACCOUNT (the Artifact Signing
+#              account's name), SIGNING_PROFILE (the certificate profile's name).
+# Until all six are set, releases are made unsigned, as before.
+name: Release
+
+on:
+  push:
+    branches: ['release/*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  sign:
+    runs-on: windows-latest
+    outputs:
+      signed: ${{ steps.done.outputs.signed }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: What to sign
+        id: what
+        shell: pwsh
+        env:
+          HAS_SECRET: ${{ secrets.AZURE_CLIENT_SECRET != '' && secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_TENANT_ID != '' }}
+          HAS_VARS: ${{ vars.SIGNING_ENDPOINT != '' && vars.SIGNING_ACCOUNT != '' && vars.SIGNING_PROFILE != '' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $go = 'false'
+          if (-not (Test-Path release-files/SHA256SUMS)) { Write-Host "No SHA256SUMS yet." }
+          elseif ($env:HAS_SECRET -ne 'true' -or $env:HAS_VARS -ne 'true') { Write-Host "Code signing isn't set up (see the top of this file): the release goes out unsigned." }
+          else {
+            New-Item -ItemType Directory -Force sign | Out-Null
+            # Join split files, then check them against SHA256SUMS before signing anything.
+            Get-ChildItem release-files -Filter *.part00 | ForEach-Object {
+              $name = $_.Name -replace '\.part00$', ''
+              $out = [IO.File]::Create("sign/$name")
+              Get-ChildItem release-files -Filter "$name.part*" | Sort-Object Name | ForEach-Object { $b = [IO.File]::ReadAllBytes($_.FullName); $out.Write($b, 0, $b.Length) }
+              $out.Close()
+            }
+            Get-ChildItem release-files -File | Where-Object { $_.Name -notmatch '\.part\d\d$' -and $_.Name -notin 'SHA256SUMS','notes.md' } | Copy-Item -Destination sign
+            foreach ($line in Get-Content release-files/SHA256SUMS) {
+              if ($line -notmatch '^([0-9a-f]{64})\s+\*?(.+)$') { continue }
+              $h = (Get-FileHash "sign/$($Matches[2])" -Algorithm SHA256).Hash.ToLower()
+              if ($h -ne $Matches[1]) { throw "$($Matches[2]) doesn't match SHA256SUMS" }
+            }
+            # The exe inside the zip gets signed too: unpack it next to the others.
+            Get-ChildItem sign -Filter *.zip | ForEach-Object { Expand-Archive $_.FullName -DestinationPath "sign/unzipped-$($_.BaseName)" }
+            $go = 'true'
+          }
+          "go=$go" >> $env:GITHUB_OUTPUT
+
+      - name: Sign with Azure Artifact Signing
+        if: steps.what.outputs.go == 'true'
+        uses: azure/artifact-signing-action@v2
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ vars.SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.SIGNING_PROFILE }}
+          files-folder: ${{ github.workspace }}\sign
+          files-folder-filter: exe
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Check and repack
+        id: done
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ('${{ steps.what.outputs.go }}' -ne 'true') { "signed=false" >> $env:GITHUB_OUTPUT; exit 0 }
+          Get-ChildItem sign -Recurse -Filter *.exe | ForEach-Object {
+            $sig = Get-AuthenticodeSignature $_.FullName
+            if ($sig.Status -ne 'Valid') { throw "$($_.Name) isn't signed correctly: $($sig.Status) $($sig.StatusMessage)" }
+            Write-Host "$($_.Name): signed by $($sig.SignerCertificate.Subject)"
+          }
+          Get-ChildItem sign -Directory -Filter 'unzipped-*' | ForEach-Object {
+            $zip = "sign/$($_.Name -replace '^unzipped-', '').zip"
+            Remove-Item $zip
+            Compress-Archive -Path "$($_.FullName)/*" -DestinationPath $zip -CompressionLevel Optimal
+            Remove-Item $_.FullName -Recurse
+          }
+          "signed=true" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v4
+        if: steps.done.outputs.signed == 'true'
+        with:
+          name: signed
+          path: sign/*
+          retention-days: 3
+
+  release:
+    needs: sign
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        if: needs.sign.outputs.signed == 'true'
+        with:
+          name: signed
+          path: signed
+
+      - name: Make the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          TAG="${BRANCH#release/}"
+          VER="${TAG#v}"
+          if [ "$TAG" != "v$VER" ]; then echo "Branch must be release/vX.Y.Z"; exit 1; fi
+          F=release-files
+          if [ ! -f "$F/SHA256SUMS" ]; then
+            echo "No $F/SHA256SUMS yet, so there's nothing to do."
+            exit 0
+          fi
+
+          mkdir -p out
+          for first in "$F"/*.part00; do
+            [ -e "$first" ] || continue
+            name="$(basename "${first%.part00}")"
+            cat "$F/$name".part[0-9][0-9] > "out/$name"
+          done
+          for f in "$F"/*; do
+            case "$f" in *.part[0-9][0-9]|*/SHA256SUMS|*/notes.md) continue ;; esac
+            cp "$f" out/
+          done
+          (cd out && sha256sum -c "../$F/SHA256SUMS")
+          # Signed copies (made from these same files, checked above): they're what gets published.
+          SIGNED=false
+          if [ -d signed ] && ls signed/* > /dev/null 2>&1; then cp signed/* out/; SIGNED=true; fi
+
+          sum() { sha256sum "out/$1" | cut -d' ' -f1; }
+          {
+            EXE="$(cd out && ls *.exe 2>/dev/null | head -n1)"
+            echo "**New to Check BepInEx?** Download **$EXE** below and run it. It's a single file, with nothing to install and no .NET needed."
+            echo "**Already have it (or Nomad Mod Downloader)?** You don't need anything here: while it's open, the app shows an **Update** banner for this version (or use **Activity → Check for app updates**)."
+            echo
+            if [ -f "$F/notes.md" ]; then cat "$F/notes.md"; fi
+            echo
+            echo "## Downloads"
+            for f in out/*.exe; do [ -f "$f" ] && echo "- **$(basename "$f")**: the app (Windows 10/11, 64-bit)."; done
+            for f in out/*.zip; do [ -f "$f" ] && echo "- **$(basename "$f")**: the same app plus the README, zipped."; done
+            echo
+            if [ "$SIGNED" = true ]; then echo "The app is code-signed (Azure Artifact Signing)."
+            else echo "The app isn't code-signed yet, so Windows SmartScreen may warn you. Choose **More info → Run anyway**."; fi
+            echo
+            echo "## Checksums"
+            for f in out/*; do n="$(basename "$f")"; echo "- $n sha256: $(sum "$n")"; done
+          } > release-notes.md
+          cat release-notes.md
+
+          TITLE="Check BepInEx $VER"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" out/* --clobber
+            gh release edit "$TAG" --title "$TITLE" --notes-file release-notes.md --latest
+          else
+            BASE="$(git merge-base HEAD origin/main)"
+            gh release create "$TAG" out/* --title "$TITLE" --notes-file release-notes.md --target "$BASE" --latest
+          fi
+          git push origin --delete "$BRANCH"

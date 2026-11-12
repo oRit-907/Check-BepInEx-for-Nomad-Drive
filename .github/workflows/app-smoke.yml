@@ -1,0 +1,47 @@
+# Opens the app on Windows and saves a picture of each page (Program.SmokeTest), to check the window works.
+name: App smoke test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['check-bepinex']
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build
+        run: dotnet build src/NomadModDownloader.csproj -c Release -o out
+      - name: Make a test game folder
+        shell: pwsh
+        run: |
+          $g = "$PWD/testgame"
+          New-Item -ItemType Directory -Force "$g/Nomad Drive_Data/Managed", "$g/BepInEx/core", "$g/BepInEx/plugins/SampleMod", "$g/BepInEx/config" | Out-Null
+          Set-Content "$g/Nomad Drive.exe" "" ; Set-Content "$g/winhttp.dll" "" ; Set-Content "$g/doorstop_config.ini" "[General]`nenabled = true"
+          @(
+            '[Message:   BepInEx] BepInEx 5.4.23.5 - Nomad Drive',
+            '[Info   :   BepInEx] Loading [Retro RV HUD 3.3.0]',
+            '[Info   :Retro RV HUD] Retro RV HUD loaded.',
+            '[Warning:   BepInEx] Skipping [Retro RV HUD 3.2.3] because a newer version exists (3.3.0)',
+            '[Error  : Unity Log] NullReferenceException: Object reference not set to an instance of an object',
+            '  at SampleMod.Plugin.Update () [0x00000] in <00000>:0',
+            '[Message:Nomad Mod Manager] Nomad Mod Manager loaded.',
+            '[Info   :   BepInEx] Chainloader startup complete'
+          ) | Set-Content "$g/BepInEx/LogOutput.log"
+      - name: Run
+        shell: pwsh
+        run: |
+          $p = Start-Process out/NomadModDownloader.exe -ArgumentList '--smoke-test', "$PWD/smoke", "$PWD/testgame" -PassThru
+          if (-not $p.WaitForExit(90000)) { $p.Kill(); throw "The app didn't close" }
+          Get-ChildItem smoke
+          if (Test-Path smoke/error.txt) { Get-Content smoke/error.txt; throw "Smoke test failed" }
+          if (-not (Test-Path smoke/ok.txt)) { throw "No result" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke
+          path: smoke
