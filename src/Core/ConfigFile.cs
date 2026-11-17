@@ -143,7 +143,7 @@ public sealed class ConfigFile
     /// <summary>Config files in BepInEx\config, each matched to the plugin that owns it (by plugin id) when possible.</summary>
     public static List<(string Path, PluginInfo? Plugin)> Find(GameInstall game)
     {
-        var dir = System.IO.Path.Combine(game.BepInExDir, "config");
+        var dir = System.IO.Path.Combine(game.LoaderDir, "config");
         var list = new List<(string, PluginInfo?)>();
         if (!Directory.Exists(dir)) return list;
         var plugins = PluginInspector.Scan(game, includeDisabled: true);

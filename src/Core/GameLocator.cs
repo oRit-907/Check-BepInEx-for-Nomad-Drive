@@ -12,10 +12,15 @@ public sealed class GameInstall
     public bool Is64Bit { get; }
 
     public string BepInExDir => Path.Combine(Root, "BepInEx");
-    public string PluginsDir => Path.Combine(BepInExDir, "plugins");
+    /// <summary>
+    /// The chosen loader's folder (3.4.0): BepInEx\ or IgniteLoader\. Both keep plugins, patchers, config and LogOutput.log
+    /// the same way, so the mod pages, logs and settings follow the loader the player picked.
+    /// </summary>
+    public string LoaderDir => LoaderChoice.Ignite ? Path.Combine(Root, IgniteLoaderManager.Folder) : BepInExDir;
+    public string PluginsDir => Path.Combine(LoaderDir, "plugins");
 
     /// <summary>The in-game Mods menu (Nomad Mod Manager) is installed: it applies queued changes at launch, so mods can be installed while the game runs.</summary>
-    public bool HasModManager => (File.Exists(Path.Combine(BepInExDir, "patchers", "NomadModManager.ModFiles.dll")) || File.Exists(Path.Combine(BepInExDir, "patchers", "NomadModManager.Patcher.dll"))
+    public bool HasModManager => (File.Exists(Path.Combine(LoaderDir, "patchers", "NomadModManager.ModFiles.dll")) || File.Exists(Path.Combine(LoaderDir, "patchers", "NomadModManager.Patcher.dll"))
                                   && Directory.EnumerateFiles(PluginsDir, "NomadModManager.dll", SearchOption.AllDirectories).Any())
                                  || ModChanges.IsReady(this); // Mod Files patcher applies queued changes at launch too
 
@@ -51,8 +56,8 @@ public sealed class GameInstall
     {
         try
         {
-            if (!Directory.Exists(BepInExDir)) return;
-            var dir = Path.Combine(BepInExDir, "NomadModManager");
+            if (!Directory.Exists(LoaderDir)) return;
+            var dir = Path.Combine(LoaderDir, "NomadModManager");
             Directory.CreateDirectory(dir);
             var file = Path.Combine(dir, "downloader.txt");
             var exe = StoreApp.LaunchPath;

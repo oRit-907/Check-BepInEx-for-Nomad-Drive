@@ -31,6 +31,13 @@ public enum CheckFix
     OpenProblems,       // UI only
     OpenInstalled,      // UI only
     Play,               // UI only
+    // 3.4.0: Ignite Loader
+    InstallIgnite,      // download (or take the built-in copy) and install Ignite Loader; BepInEx is kept but no longer starts
+    UpdateIgnite,
+    RepairIgnite,       // reinstall Ignite Loader's files (plugins, settings and logs kept)
+    SwitchToIgnite,     // Ignite Loader is installed but BepInEx starts: swap the starter files back
+    SwitchToBepInEx,    // BepInEx was picked but Ignite Loader starts
+    OpenIgniteReport,   // UI only: CompatibilityReport.txt
 }
 
 public sealed class CheckItem
@@ -43,7 +50,7 @@ public sealed class CheckItem
     public List<string> Paths { get; init; } = new();
 
     /// <summary>Fixes that change files and can be run together by "Fix all".</summary>
-    public bool FileFix => Fix is not (CheckFix.None or CheckFix.OpenProblems or CheckFix.OpenInstalled or CheckFix.Play);
+    public bool FileFix => Fix is not (CheckFix.None or CheckFix.OpenProblems or CheckFix.OpenInstalled or CheckFix.Play or CheckFix.OpenIgniteReport);
 }
 
 /// <summary>
@@ -100,7 +107,15 @@ public static class BepInExChecker
         var coreFiles = CoreFiles5;
         var hasCore = File.Exists(Path.Combine(core, coreFiles[0]));
         var proxy = Path.Combine(game.Root, "winhttp.dll");
-        if (status.State == BepInExState.NotInstalled)
+        var igniteActive = IgniteLoaderManager.IsActive(game);
+        if (igniteActive && !hasCore && major == 0)
+        {
+            // 3.4.0: Ignite Loader is what starts, and there's no BepInEx to switch back to
+            Add(AreaInstall, CheckLevel.Error, L.T("BepInEx isn't installed: Ignite Loader is the loader that starts now."),
+                L.T("The fix installs BepInEx 5 and makes it the loader that starts. Ignite Loader's files stay in the IgniteLoader folder, so you can switch back by picking Ignite Loader at the top of this page."),
+                CheckFix.InstallBepInEx);
+        }
+        else if (status.State == BepInExState.NotInstalled)
         {
             Add(AreaInstall, CheckLevel.Error, L.T("BepInEx isn't installed."), L.T("Nomad Drive mods need BepInEx. The fix downloads BepInEx 5 from the Nomad Drive Mods site and sets it up for Nomad Drive, with BepInEx 6 support so mods built for BepInEx 6 load too."), CheckFix.InstallBepInEx);
         }
@@ -158,7 +173,11 @@ public static class BepInExChecker
             {
                 var text = SafeRead(ini);
                 var target = IniValue(text, "target_assembly") ?? IniValue(text, "targetAssembly");
-                if (Regex.IsMatch(text, @"(?im)^\s*enabled\s*=\s*false"))
+                if (igniteActive)
+                    Add(AreaInstall, CheckLevel.Error, L.T("Ignite Loader starts instead of BepInEx."),
+                        L.T("doorstop_config.ini starts Ignite Loader. The fix makes BepInEx the loader that starts again; Ignite Loader's files are kept so you can switch back."),
+                        CheckFix.SwitchToBepInEx);
+                else if (Regex.IsMatch(text, @"(?im)^\s*enabled\s*=\s*false"))
                     Add(AreaInstall, CheckLevel.Warning, L.T("BepInEx is switched off (enabled = false in doorstop_config.ini)."), L.T("Mods won't load until it's switched back on."), CheckFix.EnableDoorstop);
                 else if (string.IsNullOrWhiteSpace(target) || !File.Exists(Path.Combine(game.Root, NormPath(target))))
                     Add(AreaInstall, CheckLevel.Error, L.T("doorstop_config.ini points at a file that isn't there."), L.F("target_assembly = {0}", target ?? "(empty)"), CheckFix.WriteDoorstop);
@@ -384,7 +403,12 @@ public static class BepInExChecker
                 return L.T("Wrote a working doorstop_config.ini.");
             case CheckFix.EnableDoorstop:
                 File.WriteAllText(DoorstopIni(game), Regex.Replace(SafeRead(DoorstopIni(game)), @"(?im)^(\s*enabled\s*=\s*)false", "${1}true"));
-                return L.T("Switched BepInEx back on.");
+                return IgniteLoaderManager.IsActive(game) ? L.T("Switched Ignite Loader back on.") : L.T("Switched BepInEx back on.");
+            case CheckFix.SwitchToBepInEx:
+                IgniteLoaderManager.SwitchToBepInEx(game);
+                return L.T("BepInEx is the loader that starts again. Ignite Loader's files are kept in the IgniteLoader folder.");
+            case CheckFix.SwitchToIgnite:
+                return IgniteLoaderManager.SwitchToIgnite(game) ? L.T("Ignite Loader is the loader that starts again. BepInEx's files are kept.") : "";
             case CheckFix.InstallCompat6:
             {
                 var w = BepInEx6Support.Install(game);
@@ -682,6 +706,7 @@ public static class BepInExChecker
         try { if (!Directory.EnumerateFiles(nestedBep, "*", SearchOption.AllDirectories).Any()) Directory.Delete(nestedBep, true); } catch { }
     }
 
+    public static string NormPathPublic(string p) => NormPath(p);
     private static string NormPath(string p) => p.Trim().Trim('"').Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);
 
     private static string Rel(GameInstall g, string p) => Path.GetRelativePath(g.Root, p);

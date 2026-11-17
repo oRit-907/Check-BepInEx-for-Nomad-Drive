@@ -11,8 +11,8 @@
     <RootNamespace>NomadModDownloader</RootNamespace>
     <Product>Check BepInEx</Product>
     <AssemblyTitle>Check BepInEx</AssemblyTitle>
-    <Description>Checks and repairs BepInEx for Nomad Drive and installs the in-game Mods menu.</Description>
-    <Version>3.3.0</Version>
+    <Description>Sets up BepInEx 5 or Ignite Loader for Nomad Drive and keeps mods loading.</Description>
+    <Version>3.4.0</Version>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ApplicationVisualStyles>true</ApplicationVisualStyles>
@@ -39,6 +39,8 @@
   </PropertyGroup>
   <ItemGroup Condition="'$(NexusEdition)' == 'true'">
     <EmbeddedResource Include="Assets\BepInEx_win_x64_5.4.23.6.zip" LogicalName="Assets.BepInEx_win_x64_5.4.23.6.zip" />
+    <!-- 3.4.0: Ignite Loader's Nexus edition (never goes online), installed when the player picks Ignite Loader. -->
+    <EmbeddedResource Include="Assets\IgniteLoader-3.3.0.zip" LogicalName="Assets.IgniteLoader-3.3.0.zip" />
   </ItemGroup>
 
   <ItemGroup>

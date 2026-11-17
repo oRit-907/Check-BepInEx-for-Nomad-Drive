@@ -260,6 +260,7 @@ public static class BepInExManager
     public static async Task<List<string>> InstallAsync(HttpClient http, GameInstall game, BepInExPlan plan, IProgress<double>? progress, CancellationToken ct, string[]? keep = null)
     {
         if (game.IsRunning()) throw new InvalidOperationException(L.T("Close Nomad Drive before installing BepInEx."));
+        IgniteLoaderManager.KeepStarterIfActive(game);   // switching from Ignite Loader: keep its starter files for switching back
 
         var zip = plan.Url.Scheme == "builtin" ? WriteBuiltIn() : await Net.DownloadFileAsync(http, plan.Url, AppPaths.Downloads, $"BepInEx_win_{plan.Architecture}_{plan.Version}", progress, ct);
         if (plan.Sha256.Length == 64)
@@ -317,6 +318,7 @@ public static class BepInExManager
     public static async Task<(List<string> Written, string Backup)> RepairAsync(HttpClient http, GameInstall game, BepInExPlan plan, IProgress<double>? progress, CancellationToken ct)
     {
         if (game.IsRunning()) throw new InvalidOperationException(L.T("Close Nomad Drive before installing BepInEx."));
+        IgniteLoaderManager.KeepStarterIfActive(game);
         var backup = Path.Combine(AppPaths.Backups, $"bepinex-repair-{DateTime.Now:yyyyMMdd-HHmmss}");
         Directory.CreateDirectory(backup);
         var core = Path.Combine(game.BepInExDir, "core");

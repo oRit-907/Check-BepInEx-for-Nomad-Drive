@@ -107,6 +107,14 @@ public static class ModLoadDoctor
         AddDir(Path.Combine(game.BepInExDir, "core"));
         AddDir(Path.Combine(game.BepInExDir, "patchers"), true);
         AddDir(game.PluginsDir, true);
+        if (LoaderChoice.Ignite)
+        {
+            // Ignite Loader: its own files, its runtime, and the old BepInEx folders it still loads from
+            AddDir(IgniteLoaderManager.LoaderDir(game));
+            AddDir(Path.Combine(game.LoaderDir, "patchers"), true);
+            AddDir(Path.Combine(game.BepInExDir, "plugins"), true);
+            foreach (var d in Directory.Exists(Path.Combine(game.LoaderDir, "runtime")) ? Directory.GetDirectories(Path.Combine(game.LoaderDir, "runtime")) : Array.Empty<string>()) AddDir(d);
+        }
         AddDir(BepInEx6Support.RuntimeDir(game));
         AddDir(Path.Combine(game.Root, BepInExChecker.DotNetFixFolder));
         AddDir(Path.Combine(game.Root, "MonoBleedingEdge", "lib", "mono", "4.5"));

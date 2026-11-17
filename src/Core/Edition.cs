@@ -16,6 +16,10 @@ public static class Edition
     /// <summary>The BepInEx 5 release built into the Nexus edition (official, unchanged).</summary>
     public const string BuiltInBepInEx = "5.4.23.6";
     public const string BuiltInBepInExResource = "Assets.BepInEx_win_x64_5.4.23.6.zip";
+    /// <summary>The Ignite Loader built into the Nexus edition (its own Nexus edition, which never goes online).</summary>
+    public const string BuiltInIgnite = "3.3.0";
+    public const string BuiltInIgniteResource = "Assets.IgniteLoader-3.3.0.zip";
+    public const string IgniteNexusPage = "https://www.nexusmods.com/nomaddrive/mods/106";
     public const string ModsMenuNexusPage = "https://www.nexusmods.com/nomaddrive/mods/51";
     public static string NexusSearch(string text) => "https://www.nexusmods.com/games/nomaddrive/mods?keyword=" + Uri.EscapeDataString(text);
 }

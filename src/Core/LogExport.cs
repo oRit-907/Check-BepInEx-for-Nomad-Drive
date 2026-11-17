@@ -61,12 +61,19 @@ public static class LogExport
 
         if (game != null)
         {
-            var bepDir = game.BepInExDir;
+            var bepDir = game.LoaderDir;
             Copy("BepInEx/LogOutput.log", Path.Combine(bepDir, "LogOutput.log"));
             Copy("BepInEx/LogOutput.log.1", Path.Combine(bepDir, "LogOutput.log.1"));
             Copy("BepInEx/BepInEx.cfg", Path.Combine(bepDir, "config", "BepInEx.cfg"));
             Copy("BepInEx/NomadModManager.cfg", Directory.Exists(Path.Combine(bepDir, "config")) ? Directory.GetFiles(Path.Combine(bepDir, "config"), "*NomadModManager*.cfg").FirstOrDefault() : null);
             Copy("doorstop_config.ini", Path.Combine(game.Root, "doorstop_config.ini"));
+            if (LoaderChoice.Ignite)
+            {
+                Copy("IgniteLoader/LoaderStatus.txt", IgniteLoaderManager.StatusFile(game));
+                Copy("IgniteLoader/CompatibilityReport.txt", IgniteLoaderManager.ReportFile(game));
+                Copy("IgniteLoader/preloader_error.log", IgniteLoaderManager.ErrorFile(game));
+                Copy("IgniteLoader/IgniteLoader.cfg", Path.Combine(bepDir, "config", "AkoRit", "IgniteLoader.cfg"));
+            }
             var menu = Pending.Dir(game.Root);
             foreach (var f in new[] { "pending.txt", "activity.log", "community.json", "match-host.json" }) Copy("NomadModManager/" + f, Path.Combine(menu, f));
             try

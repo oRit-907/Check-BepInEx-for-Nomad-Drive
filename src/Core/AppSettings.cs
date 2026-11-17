@@ -61,6 +61,9 @@ public sealed class AppSettings
     /// <summary>Keep the game's BepInEx 5 on the latest version (only while the game is closed).</summary>
     public bool AutoUpdateBepInEx { get; set; } = true;
 
+    /// <summary>3.4.0: the mod loader picked on the Check page, "bepinex5" or "ignite". Empty: whichever starts the game now.</summary>
+    public string? ModLoader { get; set; }
+
         /// <summary>App language code (en, es, de…). Empty = follow Windows.</summary>
     public string? Language { get; set; }
 

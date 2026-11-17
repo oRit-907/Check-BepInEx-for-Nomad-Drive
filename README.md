@@ -1,9 +1,15 @@
 # Check BepInEx for Nomad Drive
 
-A free Windows app for Nomad Drive that sets up BepInEx 5 and keeps it working, by AkoRit. (Until 3.0 it was
+A free Windows app for Nomad Drive that sets up the mod loader, BepInEx 5 or Ignite Loader, and keeps it working, by AkoRit. (Until 3.0 it was
 **Nomad Mod Downloader**.) Mods are installed from the **Mods menu inside the game** (Nomad Mod Manager).
 
 ## What it does
+
+- **Pick the mod loader** (3.4.0): at the top of the Check page, **BepInEx 5** or **Ignite Loader**
+  ([nomaddrivemods.online/mod/20](https://nomaddrivemods.online/mod/20)), Nomad Drive's own loader that runs BepInEx 5
+  and 6 mods and MelonLoader mods. Picking one sets it up (shown first, confirmed), and the checks, logs, settings and
+  mod pages follow it. Only one loader starts: switching swaps winhttp.dll, doorstop_config.ini and .doorstop_version,
+  and keeps the other loader's copies, so switching back needs no download and nothing is deleted.
 
 - **Check BepInEx**: installs, repairs and updates BepInEx 5 set up for Nomad Drive, and finds and fixes everything that
   stops mods loading: the .NET fix, Unity Compatibility, BepInEx 6 support, a switched-off doorstop, blocked files,
@@ -23,6 +29,7 @@ A free Windows app for Nomad Drive that sets up BepInEx 5 and keeps it working, 
 | Build | `dotnet publish src ...` (see [BUILD.md](BUILD.md)) | `dotnet publish src ... -p:NexusEdition=true` |
 | Form | one self-contained exe (and an installer) | CheckBepInEx.exe + CheckBepInEx.dll, needs the .NET 8 Desktop Runtime |
 | BepInEx | downloaded when installing (from the site, or GitHub) | BepInEx 5.4.23.6 built in, no download |
+| Ignite Loader | its site edition, downloaded from the site (SHA-256 checked) | its Nexus edition (3.3.0) built in, no download |
 | Updates | updates itself from nomaddrivemods.online | never updates itself |
 | Internet | the site and GitHub | only Unity Compatibility's Unity libraries (unity.bepinex.dev), after asking |
 

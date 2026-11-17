@@ -13,8 +13,47 @@ internal sealed partial class MainForm
     private Label _checkHeader = null!;
     private Button _checkFix = null!, _checkFixAll = null!;
     private List<CheckItem> _checks = new();
-    private string? _latestBepInEx;
+    private string? _latestBepInEx, _latestIgnite;
     private bool _latestLooked;
+    private GameButton _pickBepInEx = null!, _pickIgnite = null!;
+
+    /// <summary>The loader from the settings, or whichever starts the game now if the player hasn't picked one.</summary>
+    private void ApplyLoaderChoice(GameInstall? g)
+    {
+        LoaderChoice.Current = _settings.ModLoader switch
+        {
+            "ignite" => ModLoader.IgniteLoader,
+            "bepinex5" => ModLoader.BepInEx5,
+            _ => g != null && IgniteLoaderManager.IsActive(g) ? ModLoader.IgniteLoader : ModLoader.BepInEx5,
+        };
+        if (_pickBepInEx != null) { _pickBepInEx.Primary = !LoaderChoice.Ignite; _pickIgnite.Primary = LoaderChoice.Ignite; _pickBepInEx.Invalidate(); _pickIgnite.Invalidate(); }
+    }
+
+    /// <summary>
+    /// The player picks the loader at the top of the Check page. Nothing changes in the game folder yet: the checks
+    /// switch over, and their first fix (install, or switch) is offered right away with what it will do.
+    /// </summary>
+    private async Task PickLoaderAsync(ModLoader loader)
+    {
+        if (LoaderChoice.Current == loader && _settings.ModLoader != null) return;
+        _settings.ModLoader = loader == ModLoader.IgniteLoader ? "ignite" : "bepinex5";
+        _settings.Save();
+        ApplyLoaderChoice(_game);
+        Log(L.F("Mod loader: {0}.", LoaderChoice.Name));
+        RefreshGame();
+        await RefreshChecksAsync(lookOnline: true);
+        if (_game == null) return;
+        var first = _checks.Where(c => c.Level == CheckLevel.Error).OrderBy(c => c.Fix is CheckFix.SwitchToBepInEx or CheckFix.SwitchToIgnite ? 0 : 1).FirstOrDefault(c => c.Fix is CheckFix.InstallIgnite or CheckFix.SwitchToIgnite or CheckFix.RepairIgnite or CheckFix.SwitchToBepInEx or CheckFix.InstallBepInEx or CheckFix.RepairBepInEx);
+        if (first != null) await FixChecksAsync(new[] { first });
+    }
+
+    /// <summary>Install or switch to Ignite Loader (from the status card's button and Play).</summary>
+    private async Task FixIgniteSetupAsync()
+    {
+        await RefreshChecksAsync(lookOnline: false);
+        var item = _checks.FirstOrDefault(c => c.Fix is CheckFix.InstallIgnite or CheckFix.SwitchToIgnite or CheckFix.RepairIgnite);
+        if (item != null) await FixChecksAsync(new[] { item });
+    }
 
     private Control BuildCheckerPage()
     {
@@ -28,6 +67,20 @@ internal sealed partial class MainForm
         _checkFixAll = Theme.Button(L.T("Fix all"));
         _checkFixAll.Enabled = false;
         _checkFixAll.Click += async (_, _) => await RunExclusive(() => FixChecksAsync(_checks.Where(c => c.Level >= CheckLevel.Warning && c.FileFix).ToList()));
+        // 3.4.0: pick the mod loader
+        var loaderBar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Color.Transparent, WrapContents = true, Padding = new Padding(0, 0, 0, 8) };
+        var loaderLabel = Theme.Label(L.T("Mod loader:"), Theme.Bold);
+        loaderLabel.Margin = new Padding(0, 8, 10, 0);
+        _pickBepInEx = (GameButton)Theme.Button("BepInEx 5");
+        _pickIgnite = (GameButton)Theme.Button("Ignite Loader");
+        _pickBepInEx.Click += async (_, _) => await RunExclusive(() => PickLoaderAsync(ModLoader.BepInEx5));
+        _pickIgnite.Click += async (_, _) => await RunExclusive(() => PickLoaderAsync(ModLoader.IgniteLoader));
+        var loaderHint = Theme.Label(L.T("Ignite Loader is Nomad Drive's own loader: it runs BepInEx 5 and 6 mods and MelonLoader mods, and needs no .NET fix. You can switch back any time; nothing is deleted."), Theme.Small, Theme.Muted);
+        loaderHint.MaximumSize = new Size(560, 0);
+        loaderHint.Margin = new Padding(6, 6, 0, 0);
+        foreach (var c in new Control[] { loaderLabel, _pickBepInEx, _pickIgnite, loaderHint }) { if (c is Button) c.Margin = new Padding(0, 0, 8, 6); loaderBar.Controls.Add(c); }
+        ApplyLoaderChoice(_game);
+
         var folder = Theme.Button(L.T("Open game folder"));
         folder.Click += (_, _) => { if (_game != null) Web.Open(_game.Root); };
         var copy = Theme.Button(L.T("Copy for a bug report"));
@@ -51,6 +104,7 @@ internal sealed partial class MainForm
         page.Controls.Add(_checkDetail);
         page.Controls.Add(_checkHeader);
         page.Controls.Add(toolbar);
+        page.Controls.Add(loaderBar);
         return page;
     }
 
@@ -68,18 +122,20 @@ internal sealed partial class MainForm
             SetBadge("Check BepInEx", null);
             return 0;
         }
+        var ignite = LoaderChoice.Ignite;
         if (lookOnline || !_latestLooked)
         {
             _latestLooked = true;
             try { _latestBepInEx = (await BepInExManager.LatestAsync(_http, game, _closing.Token))?.Version; } catch { }
+            try { _latestIgnite = (await IgniteLoaderManager.LatestAsync(_http, _closing.Token))?.Version; } catch { }
         }
         _manifest = Manifest.Load();
-        try { _checks = await Task.Run(() => BepInExChecker.Run(game, _manifest, _latestBepInEx)); }
+        try { _checks = await Task.Run(() => ignite ? IgniteChecker.Run(game, _latestIgnite) : BepInExChecker.Run(game, _manifest, _latestBepInEx)); }
         catch (Exception ex) { Log(L.F("Couldn't finish the BepInEx check: {0}", ex.Message)); _checks = new(); }
 
         _checkList.BeginUpdate();
         _checkList.Items.Clear();
-        foreach (var area in BepInExChecker.Areas)
+        foreach (var area in ignite ? IgniteChecker.Areas : BepInExChecker.Areas)
         {
             var items = _checks.Where(c => c.Area == area).OrderByDescending(c => c.Level).ToList();
             if (items.Count == 0) continue;
@@ -107,8 +163,8 @@ internal sealed partial class MainForm
         var bad = _checks.Count(c => c.Level >= CheckLevel.Warning);
         var errors = _checks.Count(c => c.Level == CheckLevel.Error);
         _checkHeader.Text = errors > 0 ? L.F("{0} problem(s) stop mods from working. Select one to see what's wrong.", bad)
-                          : bad > 0 ? L.F("BepInEx works, with {0} thing(s) worth fixing.", bad)
-                          : L.T("✓  BepInEx is set up correctly for Nomad Drive.");
+                          : bad > 0 ? (ignite ? L.F("Ignite Loader works, with {0} thing(s) worth a look.", bad) : L.F("BepInEx works, with {0} thing(s) worth fixing.", bad))
+                          : (ignite ? L.T("✓  Ignite Loader is set up correctly for Nomad Drive.") : L.T("✓  BepInEx is set up correctly for Nomad Drive."));
         _checkHeader.ForeColor = errors > 0 ? Theme.Bad : bad > 0 ? Theme.Warn : Theme.Good;
         _checkFixAll.Enabled = _checks.Any(c => c.Level >= CheckLevel.Warning && c.FileFix);
         SetBadge("Check BepInEx", errors > 0 ? errors.ToString() : null);
@@ -148,6 +204,12 @@ internal sealed partial class MainForm
         CheckFix.ClearOldCrashLogs => L.T("Clear them"),
         CheckFix.OpenProblems => L.T("Open Mods not loading"),
         CheckFix.Play => L.T("Play"),
+        CheckFix.InstallIgnite => L.T("Install Ignite Loader"),
+        CheckFix.UpdateIgnite => L.T("Update Ignite Loader"),
+        CheckFix.RepairIgnite => L.T("Repair Ignite Loader"),
+        CheckFix.SwitchToIgnite => L.T("Switch to Ignite Loader"),
+        CheckFix.SwitchToBepInEx => L.T("Switch to BepInEx"),
+        CheckFix.OpenIgniteReport => L.T("Open the report"),
         _ => "",
     };
 
@@ -160,14 +222,29 @@ internal sealed partial class MainForm
         if (items.Count == 1 && items[0].Fix is CheckFix.OpenProblems or CheckFix.OpenInstalled) { ShowPage("Mods not loading"); return; }
         if (items.Count == 1 && items[0].Fix == CheckFix.OpenModsMenuPage) { Web.Open(ModsMenuFiles.SitePage); return; }
         if (items.Count == 1 && items[0].Fix == CheckFix.Play) { await PlayAsync(); return; }
+        if (items.Count == 1 && items[0].Fix == CheckFix.OpenIgniteReport) { if (File.Exists(IgniteLoaderManager.ReportFile(game))) Web.Open(IgniteLoaderManager.ReportFile(game)); return; }
         items = items.Where(i => i.FileFix).ToList();
         if (items.Count == 0) return;
         if (game.IsRunning()) { MessageBox.Show(this, L.T("Close Nomad Drive first, then try again."), Text, MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
 
         // One BepInEx download covers install, repair and update; the other fixes are quick file changes.
         static bool IsBep(CheckFix f) => f is CheckFix.InstallBepInEx or CheckFix.RepairBepInEx or CheckFix.UpdateBepInEx;
+        static bool IsIgn(CheckFix f) => f is CheckFix.InstallIgnite or CheckFix.RepairIgnite or CheckFix.UpdateIgnite;
         var bep = items.Where(i => IsBep(i.Fix)).OrderBy(i => i.Fix).FirstOrDefault();
-        var rest = BepInExChecker.Merge(items.Where(i => !IsBep(i.Fix)));
+        var ign = items.Where(i => IsIgn(i.Fix)).OrderBy(i => i.Fix).FirstOrDefault();
+        var rest = BepInExChecker.Merge(items.Where(i => !IsBep(i.Fix) && !IsIgn(i.Fix)));
+        if (ign != null) rest = rest.Where(i => i.Fix is not (CheckFix.SwitchToIgnite or CheckFix.EnableDoorstop)).ToList();   // the install writes a fresh starter
+
+        IgnitePlan? iplan = null;
+        if (ign != null)
+        {
+            iplan = await IgniteLoaderManager.LatestAsync(_http, _closing.Token);
+            if (iplan == null)
+            {
+                MessageBox.Show(this, L.T("Couldn't reach nomaddrivemods.online to get Ignite Loader. Check your connection and try again."), L.T("Ignite Loader"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+        }
 
         BepInExPlan? plan = null;
         if (bep != null)
@@ -184,13 +261,33 @@ internal sealed partial class MainForm
                 CheckFix.UpdateBepInEx => L.F("Update BepInEx to {0} (plugins, settings and doorstop_config.ini are kept)", plan.Shown),
                 _ => L.F("Reinstall BepInEx {0} ({1}). The old files go to a backup; plugins and settings are kept.", plan.Shown, plan.Architecture),
             }));
+        if (ign != null && iplan != null)
+            lines.Add("• " + (ign.Fix switch
+            {
+                CheckFix.InstallIgnite => L.F("Install Ignite Loader {0} from {1}", iplan.Version, Edition.Nexus ? L.T("this app (no download)") : iplan.Url.Host)
+                                          + "\n   " + L.T("BepInEx stays in its folder but no longer starts. Its plugins keep loading through Ignite Loader, and you can switch back here any time."),
+                CheckFix.UpdateIgnite => L.F("Update Ignite Loader to {0} (plugins, settings and logs are kept)", iplan.Version),
+                _ => L.F("Reinstall Ignite Loader {0}. Plugins, settings and logs are kept.", iplan.Version),
+            }));
         foreach (var i in rest) lines.Add("• " + FixLabel(i.Fix) + ": " + i.Title);
         var ask = L.T("This will:") + "\n\n" + string.Join("\n", lines.Distinct()) + "\n\n" + L.T("Only files in the game folder change, and anything removed goes to a backup first. Go ahead?");
-        if (MessageBox.Show(this, ask, L.T("Fix BepInEx"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) { SetStatus(L.T("Nothing changed.")); return; }
+        if (MessageBox.Show(this, ask, LoaderChoice.Ignite ? L.T("Set up Ignite Loader") : L.T("Fix BepInEx"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) { SetStatus(L.T("Nothing changed.")); return; }
 
         var done = new List<string>();
         try
         {
+            if (ign != null && iplan != null)
+            {
+                SetStatus(L.F("Getting Ignite Loader {0}…", iplan.Version));
+                var w = await IgniteLoaderManager.InstallAsync(_http, game, iplan, Progress(), _closing.Token);
+                HideProgress();
+                done.Add(ign.Fix switch
+                {
+                    CheckFix.UpdateIgnite => L.F("Updated Ignite Loader to {0} ({1} files).", iplan.Version, w.Count),
+                    CheckFix.RepairIgnite => L.F("Reinstalled Ignite Loader {0} ({1} files).", iplan.Version, w.Count),
+                    _ => L.F("Installed Ignite Loader {0} ({1} files). It's the loader that starts now.", iplan.Version, w.Count),
+                });
+            }
             if (bep != null && plan != null)
             {
                 SetStatus(L.F("Downloading BepInEx {0}…", plan.Shown));
@@ -246,7 +343,7 @@ internal sealed partial class MainForm
         foreach (var d in done) Log(d);
         RefreshGame();
         var left = await RefreshChecksAsync(lookOnline: false);
-        SetStatus(done.Count == 0 ? L.T("Nothing changed.") : left == 0 ? L.T("Fixed. BepInEx is set up correctly for Nomad Drive.") : L.F("Fixed {0} thing(s). {1} still need a look.", done.Count, left), good: done.Count > 0 && left == 0);
+        SetStatus(done.Count == 0 ? L.T("Nothing changed.") : left == 0 ? (LoaderChoice.Ignite ? L.T("Done. Ignite Loader is set up for Nomad Drive.") : L.T("Fixed. BepInEx is set up correctly for Nomad Drive.")) : L.F("Fixed {0} thing(s). {1} still need a look.", done.Count, left), good: done.Count > 0 && left == 0);
     }
 
     /// <summary>
@@ -280,7 +377,8 @@ internal sealed partial class MainForm
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"Check BepInEx {Updater.Current.ToString(3)}");
         if (_game != null) sb.AppendLine("Game: " + _game.Root);
-        foreach (var area in BepInExChecker.Areas)
+        sb.AppendLine("Mod loader: " + LoaderChoice.Name + (LoaderChoice.Ignite && _game != null ? " " + (IgniteLoaderManager.InstalledVersion(_game) ?? "(not installed)") : ""));
+        foreach (var area in LoaderChoice.Ignite ? IgniteChecker.Areas : BepInExChecker.Areas)
         {
             var items = _checks.Where(c => c.Area == area).ToList();
             if (items.Count == 0) continue;

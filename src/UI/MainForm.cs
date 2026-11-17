@@ -160,14 +160,18 @@ internal sealed partial class MainForm : Form
         Label Key(string t) => new() { Text = t, AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, BackColor = Color.Transparent, Margin = new Padding(0, 3, 12, 3) };
         Label Val(Label l) { l.AutoSize = true; l.MaximumSize = new Size(190, 0); l.Margin = new Padding(0, 3, 0, 3); return l; }
         grid.Controls.Add(Key(L.T("Game")), 0, 0); grid.Controls.Add(Val(_gameLabel), 1, 0);
-        grid.Controls.Add(Key("BepInEx"), 0, 1); grid.Controls.Add(Val(_bepLabel), 1, 1);
+        grid.Controls.Add(Key(L.T("Mod loader")), 0, 1); grid.Controls.Add(Val(_bepLabel), 1, 1);
         grid.Controls.Add(Key(L.T("Mods menu")), 0, 2); grid.Controls.Add(Val(_menuLabel), 1, 2);
 
         var gameBtn = Theme.Button(L.T("Change folder…"));
         gameBtn.Click += (_, _) => PickGameFolder();
         _bepButton = Theme.Button(L.T("Install BepInEx"), true);
         _bepButton.Visible = false;
-        _bepButton.Click += async (_, _) => await RunExclusive(() => EnsureBepInExAsync());
+        _bepButton.Click += async (_, _) =>
+        {
+            if (LoaderChoice.Ignite) { ShowPage("Check BepInEx"); await RunExclusive(FixIgniteSetupAsync); }
+            else await RunExclusive(() => EnsureBepInExAsync());
+        };
         _appUpdateButton = Theme.Button(L.T("Update app"), true);
         _appUpdateButton.Visible = false;
         _appUpdateButton.Click += async (_, _) => await RunExclusive(InstallAppUpdateAsync);
@@ -318,7 +322,7 @@ internal sealed partial class MainForm : Form
         else { RefreshGame(); _ = DeepSearchAsync(); }
         Activated += (_, _) => QuickFindOnFocus();
 
-        if (_settings.AutoUpdateBepInEx) await RunExclusive(AutoUpdateBepInExAsync);
+        if (_settings.AutoUpdateBepInEx) await RunExclusive(LoaderChoice.Ignite ? AutoUpdateIgniteAsync : AutoUpdateBepInExAsync);
         if (_game != null) CheckGameUpdate(_game);
         _gameWatch.Tick += (_, _) => { if (_game != null) CheckGameUpdate(_game); };
         _gameWatch.Start();
@@ -356,6 +360,7 @@ internal sealed partial class MainForm : Form
     private void UseGame(GameInstall g, bool announce)
     {
         _game = g;
+        ApplyLoaderChoice(g);
         if (_settings.GamePath != g.Root) { _settings.GamePath = g.Root; _settings.Save(); }
         RefreshGame();
         if (announce) Log(L.T("Found Nomad Drive at ") + g.Root);
@@ -391,7 +396,7 @@ internal sealed partial class MainForm : Form
     {
         try
         {
-            if (BepInExManager.Check(g).Major != 5 || g.IsRunning()) return;
+            if (LoaderChoice.Ignite || BepInExManager.Check(g).Major != 5 || g.IsRunning()) return;   // Ignite Loader needs none of these
             if (UnityCompat.PatcherInstalled(g) && !UnityCompat.PatcherMatches(g))
             {
                 UnityCompat.InstallPatcher(g);
@@ -428,6 +433,20 @@ internal sealed partial class MainForm : Form
         if (_game.LooksLikeNomadDrive) _game.RegisterWithModManager();
         _gameLabel.ForeColor = _game.LooksLikeNomadDrive ? Theme.Text : Theme.Warn;
 
+        if (LoaderChoice.Ignite)
+        {
+            var installed = IgniteLoaderManager.IsInstalled(_game);
+            var active = installed && IgniteLoaderManager.IsActive(_game);
+            _bepLabel.Text = !installed ? L.T("Ignite Loader — not installed")
+                           : "Ignite Loader v" + (IgniteLoaderManager.InstalledVersion(_game) ?? "?") + " — " + (active ? L.T("starts with the game") : L.T("installed, but BepInEx starts"));
+            _bepLabel.ForeColor = active ? Theme.Good : Theme.Bad;
+            _bepButton.Visible = !active;
+            _bepButton.Text = !installed ? L.T("Install Ignite Loader") : L.T("Switch to Ignite Loader");
+            var mv = ModsMenuFiles.InstalledVersion(_game);
+            _menuLabel.Text = mv != null ? "v" + mv : (Edition.Nexus ? L.T("Not installed (get it on Nexus Mods)") : L.T("Not installed (get it on nomaddrivemods.online)"));
+            _menuLabel.ForeColor = mv != null ? Theme.Good : Theme.Warn;
+            return;
+        }
         var s = BepInExManager.Check(_game);
         _bepLabel.Text = (s.Version != null ? "v" + s.Version + " — " : "") + s.Message;
         _bepLabel.ForeColor = s.State switch { BepInExState.Ready => Theme.Good, BepInExState.NeedsFirstRun or BepInExState.Disabled => Theme.Warn, _ => Theme.Bad };
@@ -461,7 +480,16 @@ internal sealed partial class MainForm : Form
         if (game.IsRunning()) { SetStatus(L.T("Nomad Drive is already running.")); return; }
         try
         {
-            if (BepInExManager.Check(game).State is BepInExState.NotInstalled or BepInExState.Broken or BepInExState.Disabled)
+            if (LoaderChoice.Ignite)
+            {
+                if (!IgniteLoaderManager.IsActive(game))
+                {
+                    ShowPage("Check BepInEx");
+                    await FixIgniteSetupAsync();
+                    if (!IgniteLoaderManager.IsActive(game)) return;
+                }
+            }
+            else if (BepInExManager.Check(game).State is BepInExState.NotInstalled or BepInExState.Broken or BepInExState.Disabled)
                 if (!await EnsureBepInExAsync()) return;
             GameLauncher.Launch(game);
             SetStatus(L.T("Starting Nomad Drive…"));
@@ -541,6 +569,22 @@ internal sealed partial class MainForm : Form
         SetStatus(L.F("BepInEx {0} installed.", plan.Shown), good: true);
         _ = RefreshChecksAsync(lookOnline: false);
         return true;
+    }
+
+    /// <summary>Keeps Ignite Loader up to date like BepInEx (only while the game is closed). The Nexus edition updates from its built-in copy.</summary>
+    private async Task AutoUpdateIgniteAsync()
+    {
+        if (_game == null || !IgniteLoaderManager.IsActive(_game)) return;
+        var plan = await IgniteLoaderManager.CheckForUpdateAsync(_http, _game, _closing.Token);
+        if (plan == null) return;
+        var have = IgniteLoaderManager.InstalledVersion(_game);
+        if (_game.IsRunning()) { Log(L.F("Ignite Loader {0} is available (you have {1}). It updates next time the app starts with the game closed.", plan.Version, have ?? "?")); return; }
+        SetStatus(L.F("Updating Ignite Loader to {0}…", plan.Version));
+        var written = await IgniteLoaderManager.InstallAsync(_http, _game, plan, Progress(), _closing.Token);
+        HideProgress();
+        Log(L.F("Updated Ignite Loader {0} → {1} ({2} files). Your plugins, settings and logs were kept.", have ?? "?", plan.Version, written.Count));
+        RefreshGame();
+        SetStatus(L.F("Ignite Loader updated to {0}.", plan.Version), good: true);
     }
 
     private async Task AutoUpdateBepInExAsync()

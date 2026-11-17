@@ -42,7 +42,7 @@ public static class LogAnalyzer
     private static readonly Regex ErrorLoading = new(@"Error loading \[(.+?)(?: [^ \]]+)?\]\s*:?\s*(.*)$", RegexOptions.Compiled);
     private static readonly Regex Frame = new(@"^\s*(?:at\s+)?([A-Za-z_][\w`]*)\.[\w`.<>]+\s*\(", RegexOptions.Compiled);
 
-    public static string BepInExLog(GameInstall game) => Path.Combine(game.BepInExDir, "LogOutput.log");
+    public static string BepInExLog(GameInstall game) => Path.Combine(game.LoaderDir, "LogOutput.log");
 
     /// <summary>Unity's own log for the game: %USERPROFILE%\AppData\LocalLow\Indie Devil\Nomad Drive\Player.log.</summary>
     public static string? PlayerLog() => SaveBackups.FindSaveFolder() is { } dir && File.Exists(Path.Combine(dir, "Player.log")) ? Path.Combine(dir, "Player.log") : null;
