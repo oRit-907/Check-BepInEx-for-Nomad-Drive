@@ -37,7 +37,7 @@ before (`StoreApp.IsPackaged`) don't update; the app and the in-game Mods menu p
 
 ## BepInEx for Nomad Drive packages
 
-The "BepInEx 5 for Nomad Drive" package (nomaddrivemods.online and Nexus Mods) is built in the [NomadModDownloader](https://github.com/oRit-907/NomadModDownloader) repo (`bepinex-package/`), which has the source of every part and the build steps.
+The "BepInEx 5 for Nomad Drive" package (nomaddrivemods.online and Nexus Mods) was built in the NomadModDownloader repo (`bepinex-package/`), which is no longer online. Every file in it comes from the BepInEx 5 release and the Nomad Mod Manager repo, as its README lists.
 
 ## Installer
 

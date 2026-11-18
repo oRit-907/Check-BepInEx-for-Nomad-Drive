@@ -39,10 +39,9 @@ Everything that differs is behind `Edition.Nexus` in [`src/Core/Edition.cs`](src
 
 - [`src/`](src): the app (.NET 8 WinForms, C#). [BUILD.md](BUILD.md) has the build steps and what the app does on your PC.
 - [`installer/`](installer): the website edition's NSIS installer.
-- The parts the app installs into the game are built in the
-  [NomadModDownloader](https://github.com/oRit-907/NomadModDownloader) repo and shipped here in `src/Assets`:
-  Unity Compatibility (`mod/UnityCompat5`), BepInEx 6 Compatibility (`mod/BepInEx6Compat`) and the Mod Files patcher
-  (`mod/NomadModManager/Patcher`). `src/Core/Shared` holds copies of the Mods menu's `Categories.cs` and `ModVersion.cs`.
+- The parts the app installs into the game are shipped here in `src/Assets`: BepInEx 6 Compatibility and the Mod Files
+  patcher (source in the [Nomad Mod Manager](https://github.com/oRit-907/Nomad-Mod-Manager) repo, `BepInEx6Compat/` and
+  `Patcher/`), and Unity Compatibility (built in the old NomadModDownloader repo, which is no longer online). `src/Core/Shared` holds copies of the Mods menu's `Categories.cs` and `ModVersion.cs`.
 
 Third-party files and their licences: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
